@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>DevPad — HTML Compiler</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.12/ace.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.12/ext-language_tools.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.6.0/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root, [data-theme="light"] {
+      --accent:#F23D49; --accent-h:#d42f3a;
+      --bg:#f0f2f5; --bg2:#ffffff; --bg3:#e8eaf0; --bg4:#d8dce8;
+      --border:#d0d4e0; --text:#1a1d2e; --text2:#5a6080; --text3:#8890b0;
+      --green:#1a9e5a; --blue:#1a6fd4; --yellow:#c07a00;
+      --shadow:rgba(0,0,0,0.10);
+      --sidebar-w:175px; --toolbar-h:44px;
+      --font:'JetBrains Mono',monospace;
+    }
+    [data-theme="dark"] {
+      --bg:#0d0f16; --bg2:#13151f; --bg3:#1a1d2e; --bg4:#21253a;
+      --border:#2a2e45; --text:#dde1f0; --text2:#6b7399; --text3:#3d4466;
+      --green:#3ddc84; --blue:#4d9fff; --yellow:#f5c518;
+      --shadow:rgba(0,0,0,0.40);
+    }
+
+    html,body { height:100%; overflow:hidden; font-family:var(--font); background:var(--bg); color:var(--text); font-size:13px; transition:background .2s,color .2s; }
+
+    /* ── TOOLBAR ──────────────────────────────────────────── */
+    #toolbar {
+      position:fixed; top:0; left:0; right:0; z-index:200;
+      height:var(--toolbar-h); background:var(--bg2);
+      border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:3px; padding:0 8px;
+      user-select:none; overflow:hidden;
+      box-shadow:0 1px 4px var(--shadow);
+    }
+
+    .logo { font-size:14px; font-weight:700; color:var(--accent); letter-spacing:-.5px; margin-right:4px; white-space:nowrap; flex-shrink:0; }
+    .sep  { width:1px; height:20px; background:var(--border); margin:0 2px; flex-shrink:0; }
+
+    .btn {
+      display:inline-flex; align-items:center; gap:4px;
+      font-family:var(--font); font-size:11px; font-weight:500;
+      padding:5px 9px; border:1px solid var(--border); border-radius:5px;
+      background:var(--bg3); color:var(--text); cursor:pointer;
+      transition:background .15s,border-color .15s,color .15s;
+      white-space:nowrap; flex-shrink:0; line-height:1;
+    }
+    .btn:hover  { background:var(--bg4); border-color:var(--text2); }
+    .btn:active { transform:scale(.96); }
+    .btn.run    { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:700; }
+    .btn.run:hover { background:var(--accent-h); }
+    .btn.tog    { background:var(--bg4); border-color:var(--accent); color:var(--accent); }
+    select.btn  { padding:4px 7px; cursor:pointer; background:var(--bg3); color:var(--text); }
+
+    .tb-right { margin-left:auto; display:flex; align-items:center; gap:4px; flex-shrink:0; }
+
+    /* Live wrap — always visible in toolbar on desktop/tablet */
+    .live-wrap {
+      display:flex; align-items:center; gap:5px;
+      font-size:11px; color:var(--text2); white-space:nowrap; flex-shrink:0;
+    }
+    .live-wrap input { accent-color:var(--accent); width:13px; height:13px; cursor:pointer; }
+
+    /* ── HAMBURGER ────────────────────────────────────────── */
+    #hamburger {
+      display:none; flex-direction:column; gap:4px;
+      cursor:pointer; padding:7px 6px; flex-shrink:0;
+    }
+    #hamburger span { display:block; width:18px; height:2px; background:var(--text); border-radius:2px; transition:.2s; }
+    #hamburger.open span:nth-child(1) { transform:translateY(6px) rotate(45deg); }
+    #hamburger.open span:nth-child(2) { opacity:0; }
+    #hamburger.open span:nth-child(3) { transform:translateY(-6px) rotate(-45deg); }
+
+    /* ── MOBILE MENU ──────────────────────────────────────── */
+    #mobile-menu {
+      position:fixed; top:var(--toolbar-h); left:0; right:0; z-index:300;
+      background:var(--bg2); border-bottom:1px solid var(--border);
+      padding:8px; flex-direction:column; gap:5px;
+      box-shadow:0 4px 16px var(--shadow);
+      display:none;  /* ALWAYS starts hidden; .open makes it flex */
+      max-height:calc(100vh - var(--toolbar-h)); overflow-y:auto;
+    }
+    #mobile-menu.open { display:flex; }
+    #mobile-menu .btn { width:100%; justify-content:flex-start; font-size:12px; padding:8px 12px; }
+
+    /* FIX (2): live row inside mobile menu */
+    .mb-live-row {
+      display:flex; align-items:center; gap:10px;
+      padding:8px 12px; font-size:12px; color:var(--text);
+      border:1px solid var(--border); border-radius:5px;
+      background:var(--bg3); cursor:pointer; user-select:none;
+    }
+    .mb-live-row input { accent-color:var(--accent); width:15px; height:15px; cursor:pointer; }
+
+    /* ── APP ──────────────────────────────────────────────── */
+    #app { position:fixed; top:var(--toolbar-h); left:0; right:0; bottom:0; display:flex; flex-direction:row; overflow:hidden; }
+
+    /* ── SIDEBAR ──────────────────────────────────────────── */
+    #sidebar { width:var(--sidebar-w); flex-shrink:0; background:var(--bg2); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; transition:transform .25s ease; }
+    #sidebar-head { padding:6px 8px; font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--text3); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    #file-tree-wrap { flex:1; overflow-y:auto; overflow-x:hidden; }
+    #file-tree-wrap::-webkit-scrollbar { width:3px; }
+    #file-tree-wrap::-webkit-scrollbar-thumb { background:var(--border); }
+
+    .tree-item { display:flex; align-items:center; gap:5px; padding:4px 8px; cursor:pointer; border-left:2px solid transparent; transition:background .1s; min-height:26px; }
+    .tree-item:hover { background:var(--bg3); }
+    .tree-item.active { background:rgba(242,61,73,.08); border-left-color:var(--accent); color:var(--accent); }
+    .tree-item .ti-icon { font-size:12px; flex-shrink:0; }
+    .tree-item .ti-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+    .tree-item .ti-path { font-size:9px; color:var(--text3); flex-shrink:0; }
+    .tree-item .ti-badge { font-size:8px; padding:1px 4px; border-radius:3px; background:rgba(77,159,255,.12); color:var(--blue); flex-shrink:0; }
+    .tree-item input.rename-input { flex:1; background:var(--bg3); border:1px solid var(--accent); color:var(--text); font-family:var(--font); font-size:11px; padding:1px 4px; border-radius:3px; outline:none; min-width:0; }
+
+    /* ── WORK AREA ────────────────────────────────────────── */
+    #work-area { flex:1; display:flex; overflow:hidden; min-width:0; }
+    #work-area.layout-vertical   { flex-direction:row; }
+    #work-area.layout-horizontal { flex-direction:column; }
+
+    /* ── EDITOR PANE ──────────────────────────────────────── */
+    #editor-pane { display:flex; flex-direction:column; overflow:hidden; border-right:1px solid var(--border); flex:1; min-width:0; min-height:0; }
+    #work-area.layout-horizontal #editor-pane { border-right:none; border-bottom:1px solid var(--border); flex:1; }
+    #editor-head { background:var(--bg2); border-bottom:1px solid var(--border); padding:4px 10px; display:flex; align-items:center; gap:7px; font-size:11px; color:var(--text2); min-height:30px; flex-shrink:0; }
+    .lang-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+    #editor-wrap { flex:1; overflow:hidden; position:relative; }
+    #editor { position:absolute; inset:0; }
+
+    /* ── PREVIEW PANE ─────────────────────────────────────── */
+    #preview-pane { display:flex; flex-direction:column; overflow:hidden; flex:1; min-width:0; min-height:0; }
+    #preview-head { background:var(--bg2); border-bottom:1px solid var(--border); padding:4px 8px; display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text2); min-height:30px; flex-shrink:0; overflow-x:auto; }
+    #preview-head::-webkit-scrollbar { display:none; }
+    .status-pill { font-size:9px; padding:2px 6px; border-radius:10px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; flex-shrink:0; }
+    .status-pill.idle    { background:rgba(107,115,153,.15); color:var(--text2); }
+    .status-pill.running { background:rgba(245,197,24,.15);  color:var(--yellow); }
+    .status-pill.ready   { background:rgba(61,220,132,.15);  color:var(--green); }
+    .status-pill.error   { background:rgba(242,61,73,.12);   color:var(--accent); }
+    #preview-tabs { display:flex; align-items:center; gap:2px; flex:1; overflow-x:auto; }
+    #preview-tabs::-webkit-scrollbar { display:none; }
+    .ptab { padding:2px 8px; font-size:10px; border-radius:3px; cursor:pointer; color:var(--text2); white-space:nowrap; border:1px solid transparent; transition:.15s; flex-shrink:0; }
+    .ptab:hover { background:var(--bg3); color:var(--text); }
+    .ptab.active { background:var(--bg4); border-color:var(--border); color:var(--accent); }
+    #preview-frame { flex:1; border:none; background:#fff; }
+
+    /* ── CONTEXT MENU ─────────────────────────────────────── */
+    #ctx-menu { position:fixed; background:var(--bg2); border:1px solid var(--border); border-radius:7px; padding:4px 0; z-index:9999; min-width:165px; box-shadow:0 10px 30px var(--shadow); display:none; }
+    #ctx-menu.visible { display:block; }
+    .ctx-item { padding:7px 13px; cursor:pointer; font-size:11px; color:var(--text); display:flex; align-items:center; gap:8px; }
+    .ctx-item:hover { background:var(--bg3); }
+    .ctx-item.danger { color:var(--accent); }
+    .ctx-sep { height:1px; background:var(--border); margin:3px 0; }
+
+    /* ── MODALS ───────────────────────────────────────────── */
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:8000; display:none; align-items:center; justify-content:center; padding:16px; }
+    .modal-overlay.open { display:flex; }
+    .modal-box { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:22px; width:100%; max-width:460px; box-shadow:0 20px 60px var(--shadow); }
+    .modal-box h3 { color:var(--text); margin-bottom:14px; font-size:14px; display:flex; align-items:center; gap:8px; }
+    .modal-close { float:right; cursor:pointer; color:var(--text2); font-size:18px; line-height:1; background:none; border:none; }
+    #share-url { width:100%; padding:8px 10px; background:var(--bg3); border:1px solid var(--border); border-radius:5px; color:var(--text2); font-family:var(--font); font-size:11px; margin-bottom:12px; resize:none; height:72px; }
+    .share-btns { display:flex; flex-wrap:wrap; gap:8px; }
+    .share-btn { display:inline-flex; align-items:center; gap:5px; padding:7px 12px; border-radius:5px; font-size:11px; font-family:var(--font); cursor:pointer; border:1px solid var(--border); background:var(--bg3); color:var(--text); transition:.15s; text-decoration:none; }
+    .share-btn:hover { background:var(--bg4); }
+    .share-btn.copy-btn { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .share-btn.copy-btn:hover { background:var(--accent-h); }
+    #save-modal input, #save-modal select { width:100%; padding:8px 10px; background:var(--bg3); border:1px solid var(--border); border-radius:5px; color:var(--text); font-family:var(--font); font-size:12px; margin-bottom:10px; outline:none; }
+    #save-modal input:focus, #save-modal select:focus { border-color:var(--accent); }
+    #save-modal label { font-size:11px; color:var(--text2); display:block; margin-bottom:4px; }
+    #save-modal .path-preview { font-size:10px; color:var(--accent); padding:4px 8px; background:rgba(242,61,73,.06); border-radius:4px; margin-bottom:10px; word-break:break-all; }
+    .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:4px; }
+    .modal-actions .btn { padding:7px 16px; }
+    .modal-actions .btn.run { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+    /* ── DROP OVERLAY ─────────────────────────────────────── */
+    #drop-overlay { position:fixed; inset:0; background:rgba(242,61,73,.05); border:2px dashed var(--accent); z-index:5000; display:none; align-items:center; justify-content:center; font-size:22px; font-weight:700; color:var(--accent); pointer-events:none; }
+    #drop-overlay.show { display:flex; }
+
+    /* ── RESPONSIVE ───────────────────────────────────────── */
+    @media (max-width:900px) { :root { --sidebar-w:155px; } }
+
+    @media (max-width:768px) {
+      #hamburger { display:flex; }
+      .tb-desktop { display:none !important; }
+      /* live-wrap stays on tablet 600-768px; hidden on phone via rule below */
+    }
+
+    @media (max-width:600px) {
+      :root { --sidebar-w:145px; }
+      #sidebar { position:fixed; top:var(--toolbar-h); left:0; bottom:0; z-index:150; transform:translateX(-100%); }
+      #sidebar.mobile-open { transform:translateX(0); box-shadow:4px 0 20px var(--shadow); }
+      #work-area { margin-left:0 !important; }
+      /* FIX (2): hide live from toolbar on phones — it's in the mobile menu */
+      .live-wrap { display:none !important; }
+    }
+
+    .ace_editor { font-family:var(--font) !important; font-size:13px !important; line-height:1.65 !important; }
+    ::-webkit-scrollbar { width:4px; height:4px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+    ::-webkit-scrollbar-thumb:hover { background:var(--text2); }
+  </style>
+</head>
+<body>
+
+<div id="drop-overlay">⬇ Drop files to upload</div>
+
+<!-- Context menu -->
+<div id="ctx-menu">
+  <div class="ctx-item" data-action="new-file">📄 New File Here</div>
+  <div class="ctx-item" data-action="new-folder">📁 New Folder Here</div>
+  <div class="ctx-item" data-action="upload-here">⬆ Upload Here</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="save">💾 Save File</div>
+  <div class="ctx-item" data-action="run-this">▶ Run This File</div>
+  <div class="ctx-item" data-action="show-path">📋 Copy Path</div>
+  <div class="ctx-item" data-action="download-file">⬇ Download</div>
+  <div class="ctx-item" data-action="download-zip">📦 Download .zip</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="rename">✏ Rename</div>
+  <div class="ctx-item danger" data-action="delete">🗑 Delete</div>
+</div>
+
+<!-- Share modal -->
+<div class="modal-overlay" id="share-modal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('share-modal')">✕</button>
+    <h3>🔗 Share Code</h3>
+    <textarea id="share-url" readonly></textarea>
+    <div class="share-btns">
+      <button class="share-btn copy-btn" id="copy-share-url">📋 Copy Code</button>
+      <a class="share-btn" id="share-twitter"  target="_blank">🐦 Twitter</a>
+      <a class="share-btn" id="share-whatsapp" target="_blank">💬 WhatsApp</a>
+      <a class="share-btn" id="share-telegram" target="_blank">✈ Telegram</a>
+    </div>
+  </div>
+</div>
+
+<!-- Save-As modal -->
+<div class="modal-overlay" id="save-modal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('save-modal')">✕</button>
+    <h3>💾 Save File As</h3>
+    <label>File name (e.g. index.html, style.css)</label>
+    <input type="text" id="save-filename" placeholder="filename.html">
+    <label>Save into folder</label>
+    <select id="save-folder"></select>
+    <div class="path-preview" id="save-path-preview">Path: project/filename.html</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('save-modal')">Cancel</button>
+      <button class="btn run" onclick="commitSaveAs()">Save</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file-upload-input" multiple style="display:none">
+<div id="sidebar-toggle-overlay" onclick="toggleSidebar()"></div>
+
+<!-- TOOLBAR -->
+<div id="toolbar">
+  <div id="hamburger" onclick="toggleMobileMenu()"><span></span><span></span><span></span></div>
+  <span class="logo">HTML Pad</span>
+  <div class="sep tb-desktop"></div>
+  <button class="btn run tb-desktop" id="btn-run"        title="Run (Ctrl+Enter)">▶ Run</button>
+  <button class="btn     tb-desktop" id="btn-run-window" title="Run in new window">⧉ New Window</button>
+  <div class="sep tb-desktop"></div>
+  <button class="btn tb-desktop" id="btn-save"       title="Save (Ctrl+S)">💾 Save</button>
+  <button class="btn tb-desktop" id="btn-save-as"    title="Save As into folder">💾 Save As…</button>
+  <button class="btn tb-desktop" id="btn-new-file"   title="New file">+ File</button>
+  <button class="btn tb-desktop" id="btn-new-folder" title="New folder">📁 Folder</button>
+  <button class="btn tb-desktop" id="btn-upload"     title="Upload files">⬆ Upload</button>
+  <div class="sep tb-desktop"></div>
+  <button class="btn tb-desktop" id="btn-cut"   title="Cut">✂</button>
+  <button class="btn tb-desktop" id="btn-copy"  title="Copy">⎘</button>
+  <button class="btn tb-desktop" id="btn-paste" title="Paste">📋</button>
+  <div class="sep tb-desktop"></div>
+  <button class="btn tb-desktop" id="btn-layout"       title="Toggle layout">⇅ Layout</button>
+  <button class="btn tb-desktop" id="btn-share"        title="Share">🔗 Share</button>
+  <button class="btn tb-desktop" id="btn-download-zip" title="Download .zip">📦</button>
+  <div class="tb-right">
+    <select class="btn tb-desktop" id="theme-select">
+      <option value="ace/theme/chrome">Chrome (Light)</option>
+      <option value="ace/theme/github">GitHub</option>
+      <option value="ace/theme/xcode">Xcode</option>
+      <option value="ace/theme/one_dark">One Dark</option>
+      <option value="ace/theme/dracula">Dracula</option>
+      <option value="ace/theme/nord_dark">Nord</option>
+      <option value="ace/theme/monokai">Monokai</option>
+      <option value="ace/theme/twilight">Twilight</option>
+      <option value="ace/theme/tomorrow_night">Tomorrow Night</option>
+    </select>
+    <button class="btn tb-desktop" id="btn-theme-mode" title="Toggle dark/light">☀ Light</button>
+    <!-- Live toggle: visible on desktop + tablet; hidden on phones (see CSS) -->
+    <div class="live-wrap">
+      <input type="checkbox" id="live-chk">
+      <label for="live-chk">Live</label>
+    </div>
+    <button class="btn" id="btn-sidebar-toggle" style="display:none" title="Toggle files">☰</button>
+  </div>
+</div>
+
+<!-- MOBILE MENU -->
+<div id="mobile-menu">
+  <button class="btn" id="mb-run">▶ Run</button>
+  <button class="btn" id="mb-run-window">⧉ Run in New Window</button>
+  <button class="btn" id="mb-save">💾 Save</button>
+  <button class="btn" id="mb-save-as">💾 Save As…</button>
+  <button class="btn" id="mb-new-file">+ New File</button>
+  <button class="btn" id="mb-new-folder">📁 New Folder</button>
+  <button class="btn" id="mb-upload">⬆ Upload</button>
+  <button class="btn" id="mb-cut">✂ Cut</button>
+  <button class="btn" id="mb-copy">⎘ Copy</button>
+  <button class="btn" id="mb-paste">📋 Paste</button>
+  <button class="btn" id="mb-layout">⇅ Toggle Layout</button>
+  <button class="btn" id="mb-share">🔗 Share</button>
+  <button class="btn" id="mb-download">📦 Download .zip</button>
+  <button class="btn" id="mb-theme-mode">🌙 Dark Mode</button>
+  <!-- FIX (2): Live toggle inside mobile menu, synced with desktop checkbox -->
+  <div class="mb-live-row" id="mb-live-row">
+    <input type="checkbox" id="live-chk-mobile">
+    <label for="live-chk-mobile">⚡ Live Preview (auto-run on every edit)</label>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div id="sidebar">
+    <div id="sidebar-head">
+      <span>Explorer</span>
+      <span id="file-count" style="font-size:9px;color:var(--text3)">0 files</span>
+    </div>
+    <div id="file-tree-wrap"><div id="file-tree"></div></div>
+  </div>
+
+  <div id="work-area" class="layout-vertical">
+    <div id="editor-pane">
+      <div id="editor-head">
+        <span class="lang-dot" id="lang-dot" style="background:var(--text3)"></span>
+        <span id="current-file-label" style="color:var(--text2)">No file open</span>
+        <span id="lang-label" style="margin-left:auto;font-size:10px;color:var(--text3)"></span>
+      </div>
+      <div id="editor-wrap"><div id="editor"></div></div>
+    </div>
+
+    <div id="preview-pane">
+      <div id="preview-head">
+        <span style="color:var(--text2);flex-shrink:0;font-size:11px">Preview</span>
+        <div id="preview-tabs"></div>
+        <span class="status-pill idle" id="status-pill">Idle</span>
+      </div>
+      <iframe id="preview-frame"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-pointer-lock"
+        allow="fullscreen"></iframe>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   DevPad — Final
+   FIX 1: New-window navigation — uses Blob URL approach.
+           Each page is pre-built as a fully self-contained HTML string.
+           The router is baked INTO each page's own <script> block,
+           so __devpadNav is always in the same window scope as the
+           links that call it. No iframes, no postMessage needed.
+   FIX 2: Live toggle visible on mobile via dedicated row in mobile menu,
+           bidirectionally synced with the desktop checkbox.
+===================================================================== */
+
+// ── Constants ─────────────────────────────────────────────
+const BINARY_EXTS = new Set([
+  'png','jpg','jpeg','gif','webp','svg','ico','bmp','tiff',
+  'mp3','wav','ogg','aac','flac',
+  'mp4','webm','mov','avi',
+  'woff','woff2','ttf','eot','otf','pdf','zip'
+]);
+const MODE_MAP = {
+  html:'html',htm:'html',css:'css',
+  js:'javascript',mjs:'javascript',jsx:'javascript',
+  ts:'typescript',tsx:'typescript',
+  json:'json',xml:'xml',svg:'xml',md:'markdown',
+  scss:'scss',less:'less',py:'python',php:'php',
+  sh:'sh',rb:'ruby',yml:'yaml',yaml:'yaml',
+};
+const LANG_COLORS = {
+  html:'#e44d26',htm:'#e44d26',css:'#264de4',scss:'#c76494',
+  js:'#e8b400',jsx:'#61dafb',ts:'#3178c6',
+  json:'#5bb974',xml:'#e44d26',md:'#888',
+  png:'#a855f7',jpg:'#a855f7',jpeg:'#a855f7',gif:'#a855f7',
+  webp:'#a855f7',svg:'#ff9900',
+  mp3:'#ec4899',wav:'#ec4899',ogg:'#ec4899',
+  mp4:'#ef4444',webm:'#ef4444',mov:'#ef4444',
+};
+const FILE_ICONS = {
+  html:'🌐',htm:'🌐',css:'🎨',scss:'🎨',less:'🎨',
+  js:'⚡',mjs:'⚡',jsx:'⚛',ts:'🔷',tsx:'🔷',
+  json:'📋',xml:'📋',yaml:'📋',yml:'📋',md:'📝',
+  png:'🖼',jpg:'🖼',jpeg:'🖼',gif:'🖼',webp:'🖼',svg:'🖼',ico:'🖼',bmp:'🖼',
+  mp3:'🎵',wav:'🎵',ogg:'🎵',aac:'🎵',
+  mp4:'🎬',webm:'🎬',mov:'🎬',
+  woff:'🔤',woff2:'🔤',ttf:'🔤',pdf:'📕',zip:'📦',
+};
+
+// ── State ─────────────────────────────────────────────────
+let tree = {}, activeId = null, liveMode = false;
+let ctxId = null, layoutMode = 'vertical', isDark = false;
+let previewFile = null;
+
+const genId  = () => '_' + Math.random().toString(36).slice(2,10);
+const getExt = n => { const p = n.split('.'); return p.length > 1 ? p.pop().toLowerCase() : ''; };
+const isBin  = n => BINARY_EXTS.has(getExt(n));
+const fileIcon = (name,type) => type==='folder' ? '📁' : (FILE_ICONS[getExt(name)] || '📄');
+
+function getVirtualPath(id) {
+  const parts = []; let cur = id;
+  while (cur && cur !== 'root') {
+    const n = tree[cur]; if (!n) break;
+    parts.unshift(n.name); cur = n.parent;
+  }
+  return parts.join('/');
+}
+
+// ── ACE Editor ────────────────────────────────────────────
+const editor = ace.edit('editor');
+ace.require('ace/ext/language_tools');
+editor.setOptions({
+  enableBasicAutocompletion:true, enableLiveAutocompletion:true,
+  showPrintMargin:false, highlightActiveLine:true,
+  useWorker:false, wrap:true, tabSize:2, useSoftTabs:true,
+});
+editor.setTheme('ace/theme/chrome');
+editor.renderer.setScrollMargin(4,4);
+editor.commands.addCommand({name:'run', bindKey:{win:'Ctrl-Enter',mac:'Command-Enter'},exec:runCode});
+editor.commands.addCommand({name:'save',bindKey:{win:'Ctrl-S',    mac:'Command-S'},    exec:saveActive});
+editor.getSession().on('change', () => {
+  if (activeId && tree[activeId] && !isBin(tree[activeId].name))
+    tree[activeId].content = editor.getValue();
+  if (liveMode) runCode();
+});
+document.getElementById('theme-select').onchange = e => editor.setTheme(e.target.value);
+
+// ── Theme mode ────────────────────────────────────────────
+function applyThemeMode(dark) {
+  isDark = dark;
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  document.getElementById('btn-theme-mode').textContent = dark ? '🌙 Dark' : '☀ Light';
+  const mb = document.getElementById('mb-theme-mode');
+  if (mb) mb.textContent = dark ? '☀ Light Mode' : '🌙 Dark Mode';
+  if (!dark) {
+    const lights = ['ace/theme/chrome','ace/theme/github','ace/theme/xcode'];
+    const sel = document.getElementById('theme-select');
+    if (!lights.includes(sel.value)) { editor.setTheme('ace/theme/chrome'); sel.value='ace/theme/chrome'; }
+  }
+}
+document.getElementById('btn-theme-mode').onclick = () => applyThemeMode(!isDark);
+document.getElementById('mb-theme-mode').onclick  = () => { applyThemeMode(!isDark); closeMobileMenu(); };
+
+// ── FIX (2): Live toggle — bidirectional desktop ↔ mobile ─
+function setLiveMode(val) {
+  liveMode = val;
+  document.getElementById('live-chk').checked = val;
+  document.getElementById('live-chk-mobile').checked = val;
+  if (val) runCode();
+}
+document.getElementById('live-chk').onchange        = e => setLiveMode(e.target.checked);
+document.getElementById('live-chk-mobile').onchange = e => setLiveMode(e.target.checked);
+// Clicking the label row also toggles
+document.getElementById('mb-live-row').onclick = e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'LABEL') return;
+  setLiveMode(!liveMode);
+};
+
+// ── Save ──────────────────────────────────────────────────
+function saveActive() {
+  if (!activeId || !tree[activeId] || isBin(tree[activeId].name)) return;
+  tree[activeId].content = editor.getValue();
+  flashStatus('ready','Saved ✓');
+}
+
+// ── Save As ───────────────────────────────────────────────
+function openSaveAs() {
+  const sel = document.getElementById('save-folder'); sel.innerHTML = '';
+  function addOpts(id, d) {
+    const node = tree[id]; if (!node || node.type !== 'folder') return;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = id === 'root' ? '/ project (root)' : '  '.repeat(d) + '📁 ' + node.name;
+    sel.appendChild(opt);
+    (node.children||[]).forEach(cid => addOpts(cid, d+1));
+  }
+  addOpts('root', 0);
+  const an = activeId && tree[activeId];
+  document.getElementById('save-filename').value = an ? an.name : 'new-file.html';
+  updateSavePathPreview();
+  openModal('save-modal');
+}
+function updateSavePathPreview() {
+  const fname = document.getElementById('save-filename').value.trim() || 'file';
+  const fid   = document.getElementById('save-folder').value;
+  const fp    = fid === 'root' ? '' : (getVirtualPath(fid) + '/');
+  document.getElementById('save-path-preview').textContent = 'Path: project/' + fp + fname;
+}
+document.getElementById('save-filename').addEventListener('input', updateSavePathPreview);
+document.getElementById('save-folder').addEventListener('change', updateSavePathPreview);
+function commitSaveAs() {
+  const fname = document.getElementById('save-filename').value.trim();
+  const fid   = document.getElementById('save-folder').value;
+  if (!fname) { alert('Enter a file name.'); return; }
+  const folder   = tree[fid];
+  const existing = (folder.children||[]).find(cid => tree[cid] && tree[cid].name === fname);
+  const content  = (activeId && tree[activeId] && !isBin(tree[activeId].name)) ? editor.getValue() : '';
+  if (existing) { tree[existing].content = content; openFile(existing); }
+  else { const nid = addFileNode(fid, fname, content, null); renderTree(); updatePreviewTabs(); openFile(nid); }
+  closeModal('save-modal');
+  flashStatus('ready', 'Saved as ' + getVirtualPath(activeId||''));
+}
+function copyPathToClipboard(id) {
+  navigator.clipboard.writeText(getVirtualPath(id)).catch(()=>{});
+  flashStatus('ready','Path copied');
+}
+
+// ── Open file ─────────────────────────────────────────────
+function openFile(id) {
+  saveActive();
+  const node = tree[id]; if (!node || node.type !== 'file') return;
+  activeId = id;
+  document.getElementById('current-file-label').textContent = getVirtualPath(id);
+  document.getElementById('lang-label').textContent = node.ext.toUpperCase();
+  document.getElementById('lang-dot').style.background = LANG_COLORS[node.ext] || '#6b7399';
+  editor.session.setMode('ace/mode/' + (MODE_MAP[node.ext] || 'text'));
+  if (node.dataUrl) {
+    editor.setValue('// Binary: ' + node.name + '\n// Auto-embedded as data URL on Run.', -1);
+    editor.setReadOnly(true); previewMedia(node);
+  } else {
+    editor.setValue(node.content || '', -1); editor.gotoLine(1,0,false); editor.setReadOnly(false);
+  }
+  renderTree();
+}
+
+function previewMedia(node) {
+  const ext = node.ext; const bg = isDark ? '#111' : '#f5f5f5'; let body = '';
+  if (['png','jpg','jpeg','gif','webp','svg','ico','bmp'].includes(ext))
+    body = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:' + bg + ';flex-direction:column;gap:12px"><img src="' + node.dataUrl + '" style="max-width:90%;max-height:80vh;border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,.2)"><p style="color:#888;font-family:monospace;font-size:11px">' + node.name + '</p></div>';
+  else if (['mp3','wav','ogg','aac','flac'].includes(ext))
+    body = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:' + bg + ';flex-direction:column;gap:14px"><div style="font-size:48px">🎵</div><audio controls src="' + node.dataUrl + '" style="width:300px"></audio><p style="color:#888;font-family:monospace;font-size:11px">' + node.name + '</p></div>';
+  else if (['mp4','webm','mov','avi'].includes(ext))
+    body = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:' + bg + ';flex-direction:column;gap:12px"><video controls src="' + node.dataUrl + '" style="max-width:90%;max-height:80vh;border-radius:6px"></video><p style="color:#888;font-family:monospace;font-size:11px">' + node.name + '</p></div>';
+  else
+    body = '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:' + bg + ';color:#888;font-family:monospace">📎 ' + node.name + '</div>';
+  document.getElementById('preview-frame').srcdoc = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{margin:0;padding:0;box-sizing:border-box}</style></head><body>' + body + '</body></html>';
+}
+
+// ── Tree ops ──────────────────────────────────────────────
+function addFileNode(parentId, name, content, dataUrl) {
+  const id = genId(); const ext = getExt(name);
+  tree[id] = {id, name, type:'file', parent:parentId, ext, content:dataUrl?'':content, dataUrl};
+  tree[parentId].children = tree[parentId].children || [];
+  tree[parentId].children.push(id); updateFileCount(); return id;
+}
+function addFolderNode(parentId, name) {
+  const id = genId();
+  tree[id] = {id, name, type:'folder', parent:parentId, children:[]};
+  tree[parentId].children = tree[parentId].children || [];
+  tree[parentId].children.push(id); return id;
+}
+function deleteNode(id) {
+  if (id === 'root') return;
+  const node = tree[id]; if (!node) return;
+  const par = tree[node.parent];
+  if (par) par.children = (par.children||[]).filter(c => c !== id);
+  if (node.children) [...node.children].forEach(deleteNode);
+  delete tree[id];
+  if (activeId === id) {
+    activeId = null; editor.setValue('',-1); editor.setReadOnly(false);
+    document.getElementById('current-file-label').textContent = 'No file open';
+    document.getElementById('lang-label').textContent = '';
+    document.getElementById('lang-dot').style.background = 'var(--text3)';
+  }
+  updateFileCount(); renderTree();
+}
+function startRename(id) {
+  renderTree();
+  const el = document.querySelector('.tree-item[data-id="' + id + '"] .ti-name'); if (!el) return;
+  const node = tree[id]; const inp = document.createElement('input');
+  inp.className = 'rename-input'; inp.value = node.name;
+  el.replaceWith(inp); inp.focus(); inp.select();
+  const commit = () => {
+    const v = inp.value.trim();
+    if (v && v !== node.name) {
+      node.name = v; if (node.type==='file') node.ext = getExt(v);
+      if (id === activeId) {
+        document.getElementById('current-file-label').textContent = getVirtualPath(id);
+        document.getElementById('lang-label').textContent = node.ext.toUpperCase();
+        document.getElementById('lang-dot').style.background = LANG_COLORS[node.ext] || '#6b7399';
+      }
+    }
+    renderTree(); updatePreviewTabs();
+  };
+  inp.addEventListener('blur', commit);
+  inp.addEventListener('keydown', e => {
+    if (e.key==='Enter') inp.blur();
+    if (e.key==='Escape') { inp.value = node.name; inp.blur(); }
+    e.stopPropagation();
+  });
+}
+function renderTree() {
+  document.getElementById('file-tree').innerHTML = '';
+  renderNode('root', document.getElementById('file-tree'), 0);
+}
+function renderNode(id, parent, depth) {
+  const node = tree[id]; if (!node) return;
+  const item = document.createElement('div');
+  item.className = 'tree-item' + (id===activeId ? ' active' : '');
+  item.style.paddingLeft = (8 + depth*14) + 'px'; item.dataset.id = id;
+  const ic = document.createElement('span'); ic.className='ti-icon'; ic.textContent=fileIcon(node.name,node.type);
+  const nm = document.createElement('span'); nm.className='ti-name'; nm.textContent=node.name;
+  item.appendChild(ic); item.appendChild(nm);
+  if (node.type==='file' && node.parent !== 'root') {
+    const pt = document.createElement('span'); pt.className='ti-path';
+    pt.textContent = tree[node.parent]?.name || ''; item.appendChild(pt);
+  }
+  if (node.type==='file' && node.dataUrl) {
+    const b = document.createElement('span'); b.className='ti-badge'; b.textContent='bin'; item.appendChild(b);
+  }
+  item.addEventListener('click', e => { e.stopPropagation(); if (node.type==='file') openFile(id); });
+  item.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); showCtx(e.clientX, e.clientY, id); });
+  parent.appendChild(item);
+  if (node.type==='folder' && node.children) node.children.forEach(cid => renderNode(cid, parent, depth+1));
+}
+function updateFileCount() {
+  const n = Object.values(tree).filter(nd => nd.type==='file').length;
+  document.getElementById('file-count').textContent = n + (n===1 ? ' file' : ' files');
+}
+
+// ── Context menu ──────────────────────────────────────────
+const ctxEl = document.getElementById('ctx-menu');
+function showCtx(x, y, id) {
+  ctxId = id; const node = tree[id];
+  const isFile = node.type === 'file'; const isRoot = id === 'root';
+  ctxEl.querySelectorAll('.ctx-item').forEach(el => {
+    const a = el.dataset.action;
+    if (isFile) el.style.display = ['new-file','new-folder','upload-here'].includes(a) ? 'none' : 'flex';
+    else        el.style.display = ['save','download-file','run-this','show-path'].includes(a) ? 'none' : 'flex';
+    if (isRoot && (a==='delete'||a==='rename')) el.style.display = 'none';
+  });
+  ctxEl.style.left = Math.min(x, window.innerWidth-170) + 'px';
+  ctxEl.style.top  = Math.min(y, window.innerHeight-260) + 'px';
+  ctxEl.classList.add('visible');
+}
+function hideCtx() { ctxEl.classList.remove('visible'); }
+document.addEventListener('click', hideCtx);
+document.addEventListener('keydown', e => { if (e.key==='Escape') { hideCtx(); closeModal(); } });
+ctxEl.querySelectorAll('.ctx-item').forEach(item => {
+  item.addEventListener('click', e => { e.stopPropagation(); handleCtx(item.dataset.action, ctxId); hideCtx(); });
+});
+function handleCtx(action, id) {
+  const node = tree[id]; if (!node) return;
+  switch(action) {
+    case 'new-file':    { const nid=addFileNode(id,'new-file.html','',null); renderTree(); startRename(nid); break; }
+    case 'new-folder':  { const nid=addFolderNode(id,'new-folder'); renderTree(); startRename(nid); break; }
+    case 'upload-here': triggerUpload(id); break;
+    case 'save':        saveActive(); break;
+    case 'run-this':    runHtmlFile(id); break;
+    case 'show-path':   copyPathToClipboard(id); break;
+    case 'download-file': downloadFile(id); break;
+    case 'download-zip':  downloadZip(id); break;
+    case 'rename':      startRename(id); break;
+    case 'delete':      if (confirm('Delete "' + node.name + '"?')) deleteNode(id); break;
+  }
+}
+
+// ── Modals ────────────────────────────────────────────────
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) {
+  if (id) document.getElementById(id).classList.remove('open');
+  else document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('open'));
+}
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if (e.target===m) m.classList.remove('open'); });
+});
+
+// ── Upload ────────────────────────────────────────────────
+function triggerUpload(parentId) {
+  parentId = parentId || 'root';
+  const inp = document.getElementById('file-upload-input');
+  inp.onchange = async e => {
+    for (const f of Array.from(e.target.files)) await readFile(f, parentId);
+    inp.value = ''; renderTree(); updatePreviewTabs();
+  };
+  inp.click();
+}
+async function readFile(file, parentId) {
+  return new Promise(resolve => {
+    const ext = getExt(file.name); const reader = new FileReader();
+    if (BINARY_EXTS.has(ext)) {
+      reader.onload = e => { addFileNode(parentId, file.name, '', e.target.result); resolve(); };
+      reader.readAsDataURL(file);
+    } else {
+      reader.onload = e => { addFileNode(parentId, file.name, e.target.result, null); resolve(); };
+      reader.readAsText(file);
+    }
+  });
+}
+
+// ── Drag & drop ───────────────────────────────────────────
+let dragCount = 0;
+const dropOv = document.getElementById('drop-overlay');
+document.addEventListener('dragenter', e => { if (e.dataTransfer.types.includes('Files')) { dragCount++; dropOv.classList.add('show'); } });
+document.addEventListener('dragleave', () => { dragCount--; if (dragCount<=0) { dragCount=0; dropOv.classList.remove('show'); } });
+document.addEventListener('dragover',  e => e.preventDefault());
+document.addEventListener('drop', async e => {
+  e.preventDefault(); dragCount=0; dropOv.classList.remove('show');
+  for (const f of Array.from(e.dataTransfer.files)) await readFile(f, 'root');
+  renderTree(); updatePreviewTabs();
+});
+
+// ── Download ──────────────────────────────────────────────
+function downloadFile(id) {
+  saveActive(); const node = tree[id]; if (!node || node.type!=='file') return;
+  if (node.dataUrl) {
+    const [hdr,b64] = node.dataUrl.split(','); const mime = hdr.match(/:(.*?);/)[1];
+    const bytes = atob(b64); const arr = new Uint8Array(bytes.length);
+    for (let i=0;i<bytes.length;i++) arr[i]=bytes.charCodeAt(i);
+    saveAs(new Blob([arr],{type:mime}), node.name);
+  } else {
+    saveAs(new Blob([node.content||''],{type:'text/plain'}), node.name);
+  }
+}
+async function downloadZip(rootId) {
+  rootId = rootId || 'root'; saveActive();
+  const zip = new JSZip();
+  function walk(id, folder) {
+    const node = tree[id]; if (!node) return;
+    if (node.type==='file') {
+      if (node.dataUrl) {
+        const [,b64]=node.dataUrl.split(','); const bytes=atob(b64);
+        const arr=new Uint8Array(bytes.length); for (let i=0;i<bytes.length;i++) arr[i]=bytes.charCodeAt(i);
+        folder.file(node.name, arr);
+      } else { folder.file(node.name, node.content||''); }
+    } else {
+      const sub = id===rootId ? folder : folder.folder(node.name);
+      (node.children||[]).forEach(cid => walk(cid, sub));
+    }
+  }
+  walk(rootId, zip);
+  const blob = await zip.generateAsync({type:'blob'});
+  saveAs(blob, (tree[rootId]?.name||'project') + '.zip');
+}
+
+// ── Collect files ─────────────────────────────────────────
+function collectAllFiles() {
+  saveActive(); const files = {};
+  function walk(id) {
+    const node = tree[id]; if (!node) return;
+    if (node.type==='file') { files[node.name]=node; files[node.name.toLowerCase()]=node; }
+    if (node.children) node.children.forEach(walk);
+  }
+  walk('root'); return files;
+}
+
+// ── Inline CSS/JS/media into HTML string ──────────────────
+function buildInlinedHtml(htmlNode, allFiles) {
+  let html = htmlNode.content || '';
+
+  // 1. Inline <link href="*.css">
+  html = html.replace(/<link\s[^>]*href=["']([^"']+)["'][^>]*\/?>/gi, (match, href) => {
+    const base = href.split('/').pop().split('?')[0];
+    const node = allFiles[base] || allFiles[base.toLowerCase()];
+    if (node && (node.ext==='css'||node.ext==='scss'||node.ext==='less'))
+      return '<style>\n/* ' + node.name + ' */\n' + (node.content||'') + '\n</style>';
+    return match;
+  });
+
+  // 2. Inline <script src="*.js">
+  html = html.replace(/<script\s[^>]*src=["']([^"']+)["'][^>]*>\s*<\/script>/gi, (match, src) => {
+    const base = src.split('/').pop().split('?')[0];
+    const node = allFiles[base] || allFiles[base.toLowerCase()];
+    if (node && (node.ext==='js'||node.ext==='mjs')) {
+      const safe = (node.content||'').replace(/<\/script>/gi, '<\\/script>');
+      return '<script>\n/* ' + node.name + ' */\n' + safe + '\n<\/script>';
+    }
+    return match;
+  });
+
+  // 3. Embed binary assets (images, audio, video, fonts)
+  Object.values(allFiles).forEach(node => {
+    if (!node.dataUrl) return;
+    const esc = node.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    html = html.replace(new RegExp('(src=["\'])' + esc + '(["\'])', 'gi'), '$1' + node.dataUrl + '$2');
+    html = html.replace(new RegExp('(href=["\'])' + esc + '(["\'])', 'gi'), '$1' + node.dataUrl + '$2');
+    html = html.replace(new RegExp('url\\(\\s*["\']?' + esc + '["\']?\\s*\\)', 'gi'), 'url(' + node.dataUrl + ')');
+    html = html.replace(new RegExp('(data-src=["\'])' + esc + '(["\'])', 'gi'), '$1' + node.dataUrl + '$2');
+  });
+
+  return html;
+}
+
+// ── Preview iframe navigation (postMessage) ───────────────
+// For the preview pane: rewrite <a href="page.html"> to postMessage
+function buildPreviewHtml(htmlNode, allFiles) {
+  let html = buildInlinedHtml(htmlNode, allFiles);
+  html = html.replace(/<a(\s[^>]*)href=["']([^"'#][^"']*)["']([^>]*)>/gi, (match, pre, href, post) => {
+    const base = href.split('/').pop().split('?')[0];
+    const ext  = getExt(base);
+    if ((ext==='html'||ext==='htm') && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('mailto:'))
+      return '<a' + pre + 'href="#" onclick="(function(){window.parent.postMessage({devpad:\'nav\',file:\'' + base + '\'},\'*\');return false;})()"' + post + '>';
+    return match;
+  });
+  return html;
+}
+
+// Listen for nav postMessages from preview iframe
+window.addEventListener('message', e => {
+  if (e.data && e.data.devpad === 'nav') {
+    const fname = e.data.file; const allF = collectAllFiles();
+    const target = allF[fname] || allF[fname.toLowerCase()];
+    if (target) {
+      previewHtmlNode(target, allF);
+      const node = Object.values(tree).find(n => n.name === target.name);
+      if (node) openFile(node.id);
+    }
+  }
+});
+
+function previewHtmlNode(htmlNode, allFiles) {
+  previewFile = htmlNode.name;
+  document.getElementById('preview-frame').srcdoc = buildPreviewHtml(htmlNode, allFiles);
+  updatePreviewTabs();
+}
+function updatePreviewTabs() {
+  const el = document.getElementById('preview-tabs'); el.innerHTML = '';
+  const seen = new Set();
+  Object.values(tree).filter(n => n.type==='file' && (n.ext==='html'||n.ext==='htm')).forEach(node => {
+    if (seen.has(node.name)) return; seen.add(node.name);
+    const tab = document.createElement('div');
+    tab.className = 'ptab' + (node.name===previewFile ? ' active' : '');
+    tab.textContent = node.name;
+    tab.onclick = () => { saveActive(); previewHtmlNode(node, collectAllFiles()); };
+    el.appendChild(tab);
+  });
+}
+
+// ── Run ───────────────────────────────────────────────────
+function runCode() {
+  saveActive(); setStatus('running');
+  const allFiles  = collectAllFiles();
+  const htmlNodes = Object.values(tree)
+    .filter(n => n.type==='file' && (n.ext==='html'||n.ext==='htm'))
+    .filter((n,i,a) => a.findIndex(x => x.name===n.name)===i);
+  if (!htmlNodes.length) {
+    document.getElementById('preview-frame').srcdoc = '<!DOCTYPE html><html><body style="font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:8px;background:#f5f5f5;color:#666"><p>No HTML file found.</p><p style="font-size:11px">Create index.html to get started.</p></body></html>';
+    setStatus('error','no HTML'); return;
+  }
+  let mainNode; const active = activeId && tree[activeId];
+  if (active && active.type==='file' && (active.ext==='html'||active.ext==='htm')) mainNode = active;
+  else mainNode = htmlNodes.find(n => n.name.toLowerCase()==='index.html') || htmlNodes[0];
+  previewHtmlNode(mainNode, allFiles); updatePreviewTabs();
+  setStatus('ready', htmlNodes.length + ' HTML · ' + Object.values(allFiles).filter(n=>n.ext==='css').length + ' CSS · ' + Object.values(allFiles).filter(n=>n.ext==='js').length + ' JS');
+}
+function runHtmlFile(id) {
+  saveActive(); const node = tree[id];
+  if (!node || node.type!=='file' || (node.ext!=='html'&&node.ext!=='htm')) return;
+  previewHtmlNode(node, collectAllFiles()); updatePreviewTabs(); setStatus('ready', node.name);
+}
+
+/* =====================================================================
+   FIX (1): Run in New Window — Blob URL router approach
+   -----------------------------------------------------------------------
+   ROOT CAUSE of the old bug:
+     Each page had  onclick="__devpadNav('about.html')"  injected into it,
+     but those pages were loaded as `srcdoc` inside an inner <iframe>.
+     Inside that iframe's JS context, `__devpadNav` does NOT exist —
+     it only existed in the outer DevPad window. So clicking any link
+     brought the user back to the DevPad editor instead of navigating.
+
+   THE FIX — how it works:
+     1. We build every HTML page as a FULLY self-contained string
+        (CSS, JS, and media all inlined — no external references).
+     2. We store ALL pages in a JS object called DEVPAD_PAGES.
+     3. We write a tiny router function (devpadNav) once.
+     4. We inject that router + DEVPAD_PAGES directly into EACH page's
+        own <body> as a <script> block — so devpadNav lives in the SAME
+        window as the links calling it.
+     5. <a href="about.html"> is rewritten to onclick="devpadNav('about.html')".
+     6. devpadNav() calls document.open/write/close to swap the whole page,
+        then re-injects itself so navigation keeps working after each swap.
+     7. Everything runs in a single window — no nested iframes at all.
+        The Blob URL means no srcdoc size limits either.
+===================================================================== */
+function runInNewWindow() {
+  saveActive();
+  const allFiles  = collectAllFiles();
+  const htmlNodes = Object.values(tree)
+    .filter(n => n.type==='file' && (n.ext==='html'||n.ext==='htm'))
+    .filter((n,i,a) => a.findIndex(x => x.name===n.name)===i);
+  if (!htmlNodes.length) { alert('No HTML file found in project.'); return; }
+
+  const active = activeId && tree[activeId];
+  let mainNode;
+  if (active && active.type==='file' && (active.ext==='html'||active.ext==='htm')) mainNode = active;
+  else mainNode = htmlNodes.find(n => n.name.toLowerCase()==='index.html') || htmlNodes[0];
+
+  // Step 1: Build each page (inline all CSS/JS/media)
+  const rawPages = {};
+  htmlNodes.forEach(node => { rawPages[node.name] = buildInlinedHtml(node, allFiles); });
+
+  // Step 2: Rewrite <a href="page.html"> → onclick="devpadNav('page.html')"
+  // This is done per-page AFTER inlining so media hrefs aren't rewritten
+  const linkRe = /<a(\s[^>]*)href=["']([^"'#][^"']*)["']([^>]*)>/gi;
+  const rewriteLinks = html => html.replace(linkRe, (match, pre, href, post) => {
+    const base = href.split('/').pop().split('?')[0];
+    const ext  = getExt(base);
+    if ((ext==='html'||ext==='htm') && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('mailto:'))
+      return '<a' + pre + 'href="#' + base + '" onclick="devpadNav(\'' + base + '\');return false;"' + post + '>';
+    return match;
+  });
+  const linkedPages = {};
+  Object.keys(rawPages).forEach(name => { linkedPages[name] = rewriteLinks(rawPages[name]); });
+
+  // Step 3: The router script that gets injected into EVERY page.
+  //   - It defines devpadNav() in the current window's scope.
+  //   - devpadNav() writes the target page + re-injects the router.
+  //   - Uses JSON.stringify(pages) stored as a data-attribute to avoid
+  //     any template literal / escaping issues entirely.
+  //
+  // We store pages as a Blob and pass the URL — this avoids ALL
+  // inline-string escaping issues because the pages map never needs
+  // to be embedded as JS source; it's fetched from the Blob URL.
+
+  // Build the full bundle as a Blob — the router fetches the pages map
+  // from window.__DEVPAD (set once on the top-level window).
+  // Each written page re-uses window.__DEVPAD from the same window object.
+
+  const routerScript =
+    '(function(){\n' +
+    '  var pages = window.__DEVPAD_PAGES;\n' +
+    '  var current = window.__DEVPAD_CURRENT || \'' + mainNode.name + '\';\n' +
+    '  window.devpadNav = function(page) {\n' +
+    '    if (!pages[page]) return;\n' +
+    '    window.__DEVPAD_CURRENT = page;\n' +
+    '    try { history.pushState(null,"","#"+page); } catch(e) {}\n' +
+    '    var pageHtml = pages[page];\n' +
+    '    var routerTag = \'<\' + \'script>(\'+ routerFn.toString() +\')();<\\/\' + \'script>\';\n' +
+    '    var target = pageHtml.toLowerCase().indexOf(\'</body>\');\n' +
+    '    if (target !== -1) {\n' +
+    '      pageHtml = pageHtml.slice(0,target) + routerTag + pageHtml.slice(target);\n' +
+    '    } else { pageHtml += routerTag; }\n' +
+    '    document.open("text/html"); document.write(pageHtml); document.close();\n' +
+    '  };\n' +
+    '  function routerFn(){\n' +
+    '    var pages = window.__DEVPAD_PAGES;\n' +
+    '    var current = window.__DEVPAD_CURRENT;\n' +
+    '    window.devpadNav = function(page) {\n' +
+    '      if (!pages[page]) return;\n' +
+    '      window.__DEVPAD_CURRENT = page;\n' +
+    '      try { history.pushState(null,"","#"+page); } catch(e) {}\n' +
+    '      var ph = pages[page];\n' +
+    '      var rt = \'<\' + \'script>(\'+ routerFn.toString() +\')();<\\/\' + \'script>\';\n' +
+    '      var t = ph.toLowerCase().indexOf(\'</body>\');\n' +
+    '      if (t !== -1) ph = ph.slice(0,t) + rt + ph.slice(t); else ph += rt;\n' +
+    '      document.open("text/html"); document.write(ph); document.close();\n' +
+    '    };\n' +
+    '    window.addEventListener("popstate", function() {\n' +
+    '      var h = location.hash.slice(1);\n' +
+    '      if (h && pages[h] && h !== window.__DEVPAD_CURRENT) window.devpadNav(h);\n' +
+    '    });\n' +
+    '  }\n' +
+    '  window.addEventListener("popstate", function() {\n' +
+    '    var h = location.hash.slice(1);\n' +
+    '    if (h && pages[h] && h !== window.__DEVPAD_CURRENT) window.devpadNav(h);\n' +
+    '  });\n' +
+    '})();\n';
+
+  // Build the entry page with router injected
+  function buildEntryPage(pageName) {
+    var ph = linkedPages[pageName];
+    var routerTag = '<script>' + routerScript + '<\/script>';
+    var t = ph.toLowerCase().indexOf('</body>');
+    if (t !== -1) return ph.slice(0,t) + routerTag + ph.slice(t);
+    return ph + routerTag;
+  }
+
+  // We open a new window, set window.__DEVPAD_PAGES on it directly
+  // (same origin, same window object), then write the entry page.
+  // This completely avoids serialising the pages map as JS source.
+  const win = window.open('', '_blank');
+  if (!win) { alert('Popup blocked! Please allow popups for this page.'); return; }
+
+  // Set the pages map on the new window BEFORE writing any HTML
+  win.__DEVPAD_PAGES   = linkedPages;
+  win.__DEVPAD_CURRENT = mainNode.name;
+
+  const entryHtml = buildEntryPage(mainNode.name);
+  win.document.open('text/html');
+  win.document.write(entryHtml);
+  win.document.close();
+}
+
+// ── Layout ────────────────────────────────────────────────
+function toggleLayout() {
+  const wa  = document.getElementById('work-area');
+  const btn = document.getElementById('btn-layout');
+  if (layoutMode==='vertical') {
+    layoutMode='horizontal'; wa.classList.replace('layout-vertical','layout-horizontal'); btn.classList.add('tog');
+  } else {
+    layoutMode='vertical'; wa.classList.replace('layout-horizontal','layout-vertical'); btn.classList.remove('tog');
+  }
+  editor.resize();
+}
+
+// ── Share ─────────────────────────────────────────────────
+function openShareModal() {
+  saveActive();
+  const mn = Object.values(tree).find(n=>n.name.toLowerCase()==='index.html')
+          || Object.values(tree).find(n=>n.type==='file'&&(n.ext==='html'||n.ext==='htm'));
+  const code = mn ? (mn.content||'') : editor.getValue();
+  const page = window.location.href;
+  document.getElementById('share-url').value = code.slice(0,500) + (code.length>500 ? '\n\n[...truncated]' : '');
+  document.getElementById('share-twitter').href  = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent('Check out my HTML project! #DevPad\n'+page);
+  document.getElementById('share-whatsapp').href = 'https://api.whatsapp.com/send?text=' + encodeURIComponent('Check out my project: '+page);
+  document.getElementById('share-telegram').href = 'https://t.me/share/url?url=' + encodeURIComponent(page) + '&text=' + encodeURIComponent('DevPad project');
+  openModal('share-modal');
+}
+document.getElementById('copy-share-url').onclick = () => {
+  saveActive();
+  const code = Object.values(tree).filter(n=>n.type==='file'&&(n.ext==='html'||n.ext==='htm'))
+    .sort(a => a.name==='index.html' ? -1 : 1)[0]?.content || editor.getValue();
+  navigator.clipboard.writeText(code).then(() => {
+    const b = document.getElementById('copy-share-url');
+    b.textContent = '✓ Copied!'; setTimeout(() => b.textContent='📋 Copy Code', 2000);
+  });
+};
+
+// ── Edit ──────────────────────────────────────────────────
+document.getElementById('btn-cut').onclick = () => {
+  const sel = editor.getSelectedText();
+  if (sel) { navigator.clipboard.writeText(sel).catch(()=>{}); editor.execCommand('del'); }
+  else {
+    const pos = editor.getCursorPosition();
+    navigator.clipboard.writeText(editor.session.getLine(pos.row)+'\n').catch(()=>{});
+    editor.session.removeFullLines(pos.row, pos.row);
+  }
+};
+document.getElementById('btn-copy').onclick  = () => { navigator.clipboard.writeText(editor.getSelectedText() || editor.session.getLine(editor.getCursorPosition().row)).catch(()=>{}); };
+document.getElementById('btn-paste').onclick = async () => { try { const t=await navigator.clipboard.readText(); editor.insert(t); editor.focus(); } catch(e) { editor.execCommand('paste'); } };
+
+// ── Status ────────────────────────────────────────────────
+let stTimer;
+function setStatus(state, info) {
+  const p = document.getElementById('status-pill');
+  p.className = 'status-pill ' + state;
+  p.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+  if (state==='running') { clearTimeout(stTimer); stTimer = setTimeout(() => setStatus('ready', info||''), 700); }
+}
+function flashStatus(state, msg) { setStatus(state, msg); clearTimeout(stTimer); stTimer = setTimeout(() => setStatus('idle',''), 2000); }
+
+// ── Sidebar mobile ────────────────────────────────────────
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('mobile-open'); }
+
+// ── Mobile menu ───────────────────────────────────────────
+function toggleMobileMenu() {
+  document.getElementById('hamburger').classList.toggle('open');
+  document.getElementById('mobile-menu').classList.toggle('open');
+}
+function closeMobileMenu() {
+  document.getElementById('hamburger').classList.remove('open');
+  document.getElementById('mobile-menu').classList.remove('open');
+}
+
+// Wire mobile buttons
+document.getElementById('mb-run').onclick        = () => { runCode(); closeMobileMenu(); };
+document.getElementById('mb-run-window').onclick = () => { runInNewWindow(); closeMobileMenu(); };
+document.getElementById('mb-save').onclick       = () => { saveActive(); closeMobileMenu(); };
+document.getElementById('mb-save-as').onclick    = () => { openSaveAs(); closeMobileMenu(); };
+document.getElementById('mb-new-file').onclick   = () => { const n=addFileNode('root','new-file.html','',null); renderTree(); startRename(n); closeMobileMenu(); };
+document.getElementById('mb-new-folder').onclick = () => { const n=addFolderNode('root','new-folder'); renderTree(); startRename(n); closeMobileMenu(); };
+document.getElementById('mb-upload').onclick     = () => { triggerUpload('root'); closeMobileMenu(); };
+document.getElementById('mb-cut').onclick        = () => { document.getElementById('btn-cut').onclick(); closeMobileMenu(); };
+document.getElementById('mb-copy').onclick       = () => { document.getElementById('btn-copy').onclick(); closeMobileMenu(); };
+document.getElementById('mb-paste').onclick      = () => { document.getElementById('btn-paste').onclick(); closeMobileMenu(); };
+document.getElementById('mb-layout').onclick     = () => { toggleLayout(); closeMobileMenu(); };
+document.getElementById('mb-share').onclick      = () => { openShareModal(); closeMobileMenu(); };
+document.getElementById('mb-download').onclick   = () => { downloadZip('root'); closeMobileMenu(); };
+
+// Wire desktop toolbar
+document.getElementById('btn-run').onclick           = runCode;
+document.getElementById('btn-run-window').onclick    = runInNewWindow;
+document.getElementById('btn-save').onclick          = saveActive;
+document.getElementById('btn-save-as').onclick       = openSaveAs;
+document.getElementById('btn-new-file').onclick      = () => { const n=addFileNode('root','new-file.html','',null); renderTree(); startRename(n); };
+document.getElementById('btn-new-folder').onclick    = () => { const n=addFolderNode('root','new-folder'); renderTree(); startRename(n); };
+document.getElementById('btn-upload').onclick        = () => triggerUpload('root');
+document.getElementById('btn-layout').onclick        = toggleLayout;
+document.getElementById('btn-share').onclick         = openShareModal;
+document.getElementById('btn-download-zip').onclick  = () => downloadZip('root');
+document.getElementById('btn-sidebar-toggle').onclick = toggleSidebar;
+
+// ── Resize ────────────────────────────────────────────────
+function handleResize() {
+  const w = window.innerWidth;
+  const sb = document.getElementById('btn-sidebar-toggle');
+  if (w <= 600) { sb.style.display='flex'; }
+  else { sb.style.display='none'; document.getElementById('sidebar').classList.remove('mobile-open'); }
+  if (w > 768) closeMobileMenu();  // FIX: close mobile menu when going back to desktop
+  editor.resize();
+}
+window.addEventListener('resize', handleResize);
+
+// ── Default project ───────────────────────────────────────
+function initProject() {
+  tree = {};
+  tree['root'] = {id:'root', name:'project', type:'folder', parent:null, children:[]};
+  const files = [
+    { name:'index.html', content:
+'<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>My Website</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <nav>\n    <a href="index.html">🏠 Home</a>\n    <a href="about.html">📄 About</a>\n    <a href="gallery.html">🖼 Gallery</a>\n  </nav>\n  <main class="hero">\n    <h1>🚀 Welcome to DevPad</h1>\n    <p>A complete multi-file website compiler.</p>\n    <p>Navigation works in both the <strong>Preview pane</strong> and <strong>New Window</strong>!</p>\n    <button onclick="greet()">Say Hello</button>\n    <p class="hint">Upload images via ⬆ Upload, then use &lt;img src="yourfile.jpg"&gt; — they embed automatically.</p>\n  </main>\n  <script src="script.js"><\/script>\n</body>\n</html>'
+    },
+    { name:'about.html', content:
+'<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>About</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <nav>\n    <a href="index.html">🏠 Home</a>\n    <a href="about.html">📄 About</a>\n    <a href="gallery.html">🖼 Gallery</a>\n  </nav>\n  <main class="hero">\n    <h1>📄 About Page</h1>\n    <p>This page shares <em>style.css</em> and <em>script.js</em> with index.html.</p>\n    <p>Click any nav link — works in both preview pane and new window!</p>\n    <button onclick="greet()">Hello from About</button>\n  </main>\n  <script src="script.js"><\/script>\n</body>\n</html>'
+    },
+    { name:'gallery.html', content:
+'<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>Gallery</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <nav>\n    <a href="index.html">🏠 Home</a>\n    <a href="about.html">📄 About</a>\n    <a href="gallery.html">🖼 Gallery</a>\n  </nav>\n  <main class="hero">\n    <h1>🖼 Gallery</h1>\n    <p>Upload images, audio or video via ⬆ Upload, then reference them by filename:</p>\n    <code style="background:#e2e8f0;padding:6px 12px;border-radius:5px;font-size:13px">&lt;img src="photo.jpg" alt="My photo"&gt;</code>\n    <p style="margin-top:16px">Assets embed as data URLs — they appear here and in the new window too.</p>\n  </main>\n  <script src="script.js"><\/script>\n</body>\n</html>'
+    },
+    { name:'style.css', content:
+'*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}\nbody{font-family:system-ui,sans-serif;background:#f8fafc;color:#1e293b;min-height:100vh;}\nnav{padding:12px 24px;background:#fff;display:flex;gap:20px;border-bottom:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,.05);}\nnav a{color:#F23D49;text-decoration:none;font-size:14px;font-weight:600;transition:opacity .15s;}\nnav a:hover{opacity:.7;}\n.hero{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:calc(100vh - 50px);text-align:center;padding:40px 20px;gap:18px;}\nh1{font-size:clamp(1.8rem,5vw,3rem);}\np{color:#64748b;max-width:520px;line-height:1.7;}\n.hint{font-size:12px;background:#f1f5f9;padding:10px 16px;border-radius:6px;color:#475569;}\nbutton{padding:11px 26px;background:#F23D49;color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:700;cursor:pointer;transition:background .2s;}\nbutton:hover{background:#d42f3a;}\ncode{display:inline-block;}'
+    },
+    { name:'script.js', content:
+'function greet(){\n  var msgs=["Hello, World!","Hello, Developer!","Hello from DevPad!"];\n  alert(msgs[Math.floor(Math.random()*msgs.length)]);\n}\nconsole.log("script.js loaded");'
+    }
+  ];
+  files.forEach(f => {
+    const id = genId();
+    tree[id] = {id, name:f.name, type:'file', parent:'root', ext:getExt(f.name), content:f.content, dataUrl:null};
+    tree['root'].children.push(id);
+  });
+  renderTree(); updateFileCount(); updatePreviewTabs();
+  const html = Object.values(tree).find(n => n.name==='index.html');
+  if (html) openFile(html.id);
+  runCode();
+}
+
+// Boot
+initProject();
+handleResize();
+applyThemeMode(false);
+</script>
+</body>
+</html>
